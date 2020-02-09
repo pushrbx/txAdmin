@@ -146,6 +146,8 @@ module.exports = class ConfigVault {
                 autostart: toDefault(cfg.fxRunner.autostart, null),
                 autostartDelay: toDefault(cfg.webServer.autostartDelay, null), //not in template
                 quiet: toDefault(cfg.fxRunner.quiet, null),
+                serverDockerImageName: toDefault(cfg.fxRunner.serverDockerImageName, "fxserver"),
+                containerName: toDefault(cfg.fxRunner.containerName, "fxserver")
             };
         } catch (error) {
             throw new Error(`Malformed configuration file! Please copy server-template.json and try again.\nOriginal error: ${error.message}`, error.stack);

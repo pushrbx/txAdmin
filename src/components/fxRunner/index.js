@@ -7,9 +7,14 @@ const sleep = require('util').promisify(setTimeout);
 const pidtree = require('pidtree');
 const { dir, log, logOk, logWarn, logError, cleanTerminal } = require('../../extras/console');
 const helpers = require('../../extras/helpers');
+const defer = require('../../extras/defer');
+const Deferred = defer.Deferred;
 const resourceInjector = require('./resourceInjector');
 const ConsoleBuffer = require('./consoleBuffer');
 const context = 'FXRunner';
+const Docker = require('dockerode');
+const net = require('net');
+const _ = require('lodash');
 
 //Helpers
 const now = () => { return Math.round(new Date() / 1000) };
@@ -24,6 +29,13 @@ module.exports = class FXRunner {
         this.tsChildStarted = null;
         this.fxServerPort = null;
         this.extResources = [];
+        // ==== docker stuff ====
+        this.dockerClient = null;
+        this.serverContainerId = null;
+        this.serverContainerStdIn = new net.Socket({writable: true});
+        this.serverContainerStdOut = new net.Socket({readable: true});
+        this.serverContainerStdErr = new net.Socket({readable: true});
+        // ==== /docker stuff ====
         this.consoleBuffer = new ConsoleBuffer(this.config.logPath, 10);
         this.tmpExecFile = path.normalize(process.cwd()+`/${globals.config.serverProfilePath}/data/exec.tmp.cfg`);
         this.setupVariables();
@@ -53,22 +65,28 @@ module.exports = class FXRunner {
      */
     setupVariables(){
         let onesyncFlag = (this.config.onesync)? '+set onesync_enabled 1' : '';
-        if(globals.config.osType === 'Linux'){
+        if (this.isDockerContainerSpawnMode()) {
+            this.dockerClient = new Docker();
+        }
+        if (globals.config.osType === 'Linux'){
             this.spawnVariables = {
                 shell: '/bin/sh',
                 cmdArgs: [`${this.config.buildPath}/run.sh`, `${onesyncFlag} +exec "${this.tmpExecFile}"`]
             };
-        }else if(globals.config.osType === 'Windows_NT'){
+        } else if(globals.config.osType === 'Windows_NT'){
             this.spawnVariables = {
                 shell: 'cmd.exe',
                 cmdArgs: ['/c', `${this.config.buildPath}/run.cmd ${onesyncFlag} +exec "${this.tmpExecFile}"`]
             };
-        }else{
+        } else{
             logError(`OS type not supported: ${globals.config.osType}`, context);
             process.exit();
         }
-
     }//Final setupVariables()
+
+    isDockerContainerSpawnMode() {
+        return process.env.FXSERVER_IN_DOCKER && process.env.FXSERVER_IN_DOCKER === 1;
+    }
 
 
     //================================================================
@@ -96,7 +114,7 @@ module.exports = class FXRunner {
             return logError('Cannot start the server with missing configuration (buildPath || basePath || cfgPath).', context);
         }
         //If the server is already alive
-        if(this.fxChild !== null){
+        if (this.fxChild !== null || (this.isDockerContainerSpawnMode() && this.serverContainerId !== null)) {
             return logError('The server is already started.', context);
         }
 
@@ -129,15 +147,153 @@ module.exports = class FXRunner {
         globals.monitor.clearFXServerHitches();
 
         //Announcing
-        if(announce === 'true' | announce === true){
+        if(announce === 'true' || announce === true){
             let discordMessage = globals.translator.t('server_actions.spawning_discord', {servername: globals.config.serverName});
             globals.discordBot.sendAnnouncement(discordMessage);
         }
 
-        // todo: replace this section with dockerode:
-        // todo: - txadmin should manage the container of fivem server.
-        // todo: - it should query metrics from docker api.
         //Starting server
+        if (this.isDockerContainerSpawnMode()) {
+            await this.spawnServerAsDockerContainer();
+        } else {
+            this.spawnServerAsChildProcess();
+        }
+
+        return null;
+    }//Final spawnServer()
+
+    async createFxServerContainer(imageName) {
+        if (!imageName) {
+            throw new Error("Failed to create fx server container. The resolved image name for the creation was invalid.");
+        }
+        // todo: container recreation if onesync setting changes.
+        // todo: find default port.
+        const serverPort = this.fxServerPort ? this.fxServerPort : 9999;
+        const container = await this.dockerClient.createContainer({
+            fromImage: imageName,
+            AttachStdin: true,
+            AttachStdout: true,
+            AttachStderr: true,
+            Tty: false,
+            OpenStdin: true,
+            HostConfig: {
+                PortBindings: {
+                    [`${serverPort}/tcp`]: [
+                        {
+                            HostPort: `${serverPort}`
+                        }
+                    ],
+                    [`${serverPort}/udp`]: [
+                        {
+                            HostPort: `${serverPort}`
+                        }
+                    ]
+                }
+            }
+        });
+
+        if (result) {
+            return container;
+        } else {
+            throw new Error("Couldnt create the server's container.");
+        }
+    }
+
+    async setupSocketsForContainer(container) {
+        if (!container) {
+            throw new Error("Failed to create fx server container. The resolved container object for the creation was invalid.");
+        }
+
+        this.serverContainerStdIn.on('error', () => {});
+        this.serverContainerStdIn.on('data', () => {});
+
+        this.serverContainerStdOut.on('error', () => {});
+        this.serverContainerStdOut.on('data', this.consoleBuffer.write.bind(this.consoleBuffer));
+
+        this.serverContainerStdErr.on('error', () => {});
+        this.serverContainerStdErr.on('data', this.consoleBuffer.writeError.bind(this.consoleBuffer));
+
+        const serverStream = await container.attach({ stream: true, stdout: true, stdin: true, hijack: true });
+        if (serverStream) {
+            // todo: figure out when we write to stdIn socket does it close it?
+            this.serverContainerStdIn.pipe(serverStream);
+            container.modem.demuxStream(serverStream, this.serverContainerStdOut, this.serverContainerStdErr);
+            container.wait(function () {
+                logWarn(`>> FXServer Closed. (CID: ${this.serverContainerId})`);
+                this.serverContainerStdIn.end();
+                this.serverContainerStdErr.end();
+                this.serverContainerStdOut.end();
+                if (serverStream) {
+                    serverStream.socket.end();
+                }
+            });
+        }
+    }
+
+    async setupContainerSocketsAndStart(container) {
+        if (!container) {
+            throw new Error("Failed to create fx server container. The resolved container object for the creation was invalid.");
+        }
+        await container.start();
+        const containerData = await container.inspect();
+        if (containerData.State.Running) {
+            await this.setupSocketsForContainer(container);
+        } else {
+            throw new Error("Failed to start fx server container.");
+        }
+
+        this.serverContainerId = containerData.Id;
+        logOk(`FXServer started as a docker container! Container id: ${this.serverContainerId}`);
+    }
+
+    async spawnServerAsDockerContainer() {
+        try {
+            const imageName = this.config.serverDockerImageName ? this.config.serverDockerImageName : "fxserver";
+            // check if fxserver's container exists
+            const containers = await this.dockerClient.listContainers({
+                "filters": {
+                    "status": [ "exited", "running" ]
+                }
+            });
+            const serverContainer = _.find(containers, x => x.Image.indexOf(imageName) > -1 || x.Image === imageName);
+            if (!serverContainer) {
+                const images = await this.dockerClient.listImages();
+                if (images) {
+                    const serverImage = _.find(images, x => !!_.find(x.RepoTags, y => y.indexOf(imageName) > -1));
+                    if (!serverImage) {
+                        // try to pull image, hoping the image name is in repoTag format
+                        try {
+                            const stream = await this.dockerClient.pull(imageName);
+                            const deferred = new Deferred();
+                            const th = this;
+                            this.dockerClient.modem.followProgress(stream, function() {
+                                // on finished.
+                                th.createFxServerContainer(imageName).then(c => {
+                                    deferred.resolve(c);
+                                }).catch(e => deferred.reject(e));
+                            });
+                            const createdServerContainer = await deferred.promise;
+                            await this.setupContainerSocketsAndStart(createdServerContainer);
+                        } catch (e) {
+                            logError('Failed to start FXServer. The docker image for FXServer is missing. Please build it first.');
+                        }
+                    } else {
+                        // serverImage exists, hurray.
+                        const createdServerContainer = await this.createFxServerContainer(_.head(serverImage.RepoTags));
+                        await this.setupContainerSocketsAndStart(createdServerContainer);
+                    }
+                }
+            } else {
+                // container exists, hurray.
+                const container = this.dockerClient.getContainer(serverContainer.Id);
+                await this.setupContainerSocketsAndStart(container);
+            }
+        } catch (e) {
+            logError(`There was a problem during the fxserver spawn operation: ${e}`, context);
+        }
+    }
+
+    spawnServerAsChildProcess() {
         let pid;
         let tsStart = now();
         try {
@@ -197,10 +353,7 @@ module.exports = class FXRunner {
         setTimeout(() => {
             this.setProcPriority();
         }, 2500);
-
-        return null;
-    }//Final spawnServer()
-
+    }
 
     //================================================================
     /**
@@ -247,7 +400,7 @@ module.exports = class FXRunner {
             `set txAdmin-apiToken "${globals.webServer.intercomToken}"`,
             `set txAdmin-clientCompatVersion "1.5.0"`,
             `set txAdmin-expBanEnabled ${runExperiment}`
-        ]
+        ];
 
         //Commands
         this.extResources.forEach((res)=>{
@@ -272,6 +425,9 @@ module.exports = class FXRunner {
      * Sets the process priority to all fxChild (cmd/bash) children (fxserver)
      */
     async setProcPriority(){
+        if (this.isDockerContainerSpawnMode()) {
+            return;
+        }
         //Sanity check
         if(typeof this.config.setPriority !== 'string') return;
         let priority = this.config.setPriority.toUpperCase();
@@ -306,14 +462,32 @@ module.exports = class FXRunner {
      * Restarts the FXServer
      * @param {string} tReason
      */
-    async restartServer(tReason){
+    async restartServer(tReason) {
+        if (this.isDockerContainerSpawnMode()) {
+            if (this.serverContainerId) {
+                const serverContainer = this.dockerClient.getContainer(this.serverContainerId);
+                try {
+                    // returns a truthy value, an empty Buffer object.
+                    // because the status code is 204 from the API.
+                    // https://docs.docker.com/engine/api/v1.40/#operation/ContainerRestart
+                    const result = await serverContainer.restart();
+                    if (!result) {
+                        return logError("Failed to restart the container of FXServer.", context);
+                    }
+                } catch (e) {
+                    return logError("Failed to restart the container of FXServer.", context);
+                }
+            }
+
+            return null;
+        }
         try {
             //If a reason is provided, announce restart on discord, kick all players and wait 500ms
             if(typeof tReason === 'string'){
                 let tOptions = {
                     servername: globals.config.serverName,
                     reason: tReason
-                }
+                };
                 let discordMessage = globals.translator.t('server_actions.restarting_discord', tOptions);
                 globals.discordBot.sendAnnouncement(discordMessage);
                 let kickMessage = globals.translator.t('server_actions.restarting', tOptions).replace(/\"/g, '\\"');
@@ -334,24 +508,59 @@ module.exports = class FXRunner {
 
 
     //================================================================
+    async announceServerStopAndKickAll(reason) {
+        if(typeof reason !== 'string') {
+            return Promise.resolve();
+        }
+        // If a reason is provided, announce restart on discord, kick all players and wait 500ms
+        let tOptions = {
+            servername: globals.config.serverName,
+            reason: reason
+        };
+        let discordMessage = globals.translator.t('server_actions.stopping_discord', tOptions);
+        globals.discordBot.sendAnnouncement(discordMessage);
+        let kickMessage = globals.translator.t('server_actions.stopping', tOptions).replace(/"/g, '\\"');
+        this.srvCmd(`txaKickAll "${kickMessage}"`);
+        await sleep(500);
+    }
+
     /**
      * Kills the FXServer
      * @param {string} tReason
      */
-    async killServer(tReason){
-        try {
-            //If a reason is provided, announce restart on discord, kick all players and wait 500ms
-            if(typeof tReason === 'string'){
-                let tOptions = {
-                    servername: globals.config.serverName,
-                    reason: tReason
+    async killServer(tReason) {
+        if (this.isDockerContainerSpawnMode()) {
+            let result = true;
+            try {
+                if (!this.serverContainerId) {
+                    result = false;
+                } else {
+                    const serverContainer = this.dockerClient.getContainer(this.serverContainerId);
+                    let containerInfo = await serverContainer.inspect();
+                    if (containerInfo.State.Running) {
+                        // 25 seconds timeout
+                        const stopResult = await serverContainer.stop({ t: 25000 });
+                        if (!stopResult) {
+                            result = false;
+                            logError("Failed to stop FXServer's container.");
+                        } else {
+                            containerInfo = await serverContainer.inspect();
+                            if (containerInfo.State.Error !== '') {
+                                log(`FXServer has stopped with error: ${containerInfo.State.Error}`);
+                            }
+                        }
+                    }
                 }
-                let discordMessage = globals.translator.t('server_actions.stopping_discord', tOptions);
-                globals.discordBot.sendAnnouncement(discordMessage);
-                let kickMessage = globals.translator.t('server_actions.stopping', tOptions).replace(/\"/g, '\\"');
-                this.srvCmd(`txaKickAll "${kickMessage}"`);
-                await sleep(500);
+            } catch (e) {
+                logError("Couldn't kill the server. Perhaps What Is Dead May Never Die.", context);
+                if (globals.config.verbose) {
+                    dir(e);
+                }
             }
+            return result;
+        }
+        try {
+            await this.announceServerStopAndKickAll();
 
             //Stopping server
             this.fxChild.kill();
@@ -375,7 +584,12 @@ module.exports = class FXRunner {
         if(typeof command !== 'string') throw new Error('Expected String!');
         if(this.fxChild === null) return false;
         try {
-            let success = this.fxChild.stdin.write(command + "\n");
+            let success;
+            if (!this.isDockerContainerSpawnMode()) {
+                success = this.fxChild.stdin.write(command + "\n");
+            } else {
+                success =  this.serverContainerStdIn.write(command + "\n");
+            }
             globals.webConsole.buffer(command, 'command');
             return success;
         } catch (error) {

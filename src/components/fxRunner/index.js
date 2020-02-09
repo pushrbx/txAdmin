@@ -169,6 +169,17 @@ module.exports = class FXRunner {
         // todo: container recreation if onesync setting changes.
         // todo: find default port.
         const serverPort = this.fxServerPort ? this.fxServerPort : 9999;
+        const volumeMountsExpr = this.config.serverDataVolumeMount.split(":");
+        if (volumeMountsExpr.length !== 4 && volumeMountsExpr.length !== 2) {
+            throw new Error("Config error: invalid volume mount expression.")
+        }
+        let volumeMountHostPath, volumneMountContainerPath;
+        if (volumeMountsExpr.length === 2) {
+            [volumeMountHostPath, volumneMountContainerPath] = volumeMountsExpr;
+        } else if (volumeMountsExpr === 4) {
+            volumeMountHostPath = [volumeMountsExpr[0], volumeMountsExpr[1]].join("");
+            volumneMountContainerPath = [volumeMountsExpr[2], volumeMountsExpr[3]].join("");
+        }
         const container = await this.dockerClient.createContainer({
             fromImage: imageName,
             AttachStdin: true,
@@ -188,7 +199,15 @@ module.exports = class FXRunner {
                             HostPort: `${serverPort}`
                         }
                     ]
-                }
+                },
+                Mounts: [
+                    {
+                        Type: "bind",
+                        Source: volumeMountHostPath,
+                        Target: volumneMountContainerPath,
+                        ReadOnly: false
+                    }
+                ]
             }
         });
 

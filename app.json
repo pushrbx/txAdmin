@@ -1,0 +1,11 @@
+{
+	"apps": [
+		{
+			"name": "txadmin",
+			"script": "src/index.js",
+			"args": "default",
+			"instances": 1,
+			"exec_mode": "cluster",
+		}
+	]
+}

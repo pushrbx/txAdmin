@@ -134,6 +134,9 @@ module.exports = class FXRunner {
             globals.discordBot.sendAnnouncement(discordMessage);
         }
 
+        // todo: replace this section with dockerode:
+        // todo: - txadmin should manage the container of fivem server.
+        // todo: - it should query metrics from docker api.
         //Starting server
         let pid;
         let tsStart = now();
@@ -152,11 +155,11 @@ module.exports = class FXRunner {
             process.exit(0);
         }
 
-        //Setting up stream handlers
+        // Setting up stream handlers
         this.fxChild.stdout.setEncoding('utf8');
         //process.stdin.pipe(this.fxChild.stdin);
 
-        //Setting up event handlers
+        // Setting up event handlers
         this.fxChild.on('close', function (code, signal) {
             logWarn(`>> [${pid}] FXServer Closed. (code ${code})`, context);
         });

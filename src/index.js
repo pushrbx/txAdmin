@@ -1,5 +1,6 @@
 //Test environment conditions
 const helpers = require('./extras/helpers');
+const _ = require("lodash");
 helpers.dependencyChecker();
 
 //Requires
@@ -30,7 +31,7 @@ globals = {
     //FIXME: remove with the Extensions update
     intercomTempLog: [],
     intercomTempResList: null,
-}
+};
 
 
 //==============================================================
@@ -44,17 +45,25 @@ console.log(motd);
 
 //Detect server profile
 let serverProfile;
-if(process.argv[2]){
-    serverProfile = process.argv[2].replace(/[^a-z0-9._-]/gi, "").trim();
-    if(!serverProfile.length){
+
+const validateServerProfile = x => {
+    if (!x.length) {
         logError(`Invalid server profile. Are you using Google Translator on the Github instructions page? Make sure there are no additional spaces in your command.`);
         process.exit();
-    }else if(serverProfile === 'example'){
+    } else if(x === 'example') {
         logError(`You can't use the 'example' profile.`);
         process.exit();
     }
+};
+
+if (process.argv[1].indexOf("pm2") > -1) {
+    serverProfile = _.last(process.argv).replace(/[^a-z0-9._-]/gi, "").trim();
+    validateServerProfile(serverProfile);
+} else if(process.argv[2]) {
+    serverProfile = process.argv[2].replace(/[^a-z0-9._-]/gi, "").trim();
+    validateServerProfile(serverProfile);
     log(`Server profile selected: '${serverProfile}'`);
-}else{
+} else {
     serverProfile = 'default';
     log(`Server profile not set, using 'default'`);
 }

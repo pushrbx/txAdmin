@@ -1,0 +1,12 @@
+*
+!src
+!web
+!locale
+!extensions
+!data/example
+!run.cmd
+!app.json
+!healthcheck.js
+!package.json
+!package-lock.json
+!version.json

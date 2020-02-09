@@ -110,7 +110,7 @@ module.exports = class FXRunner {
             this.config.buildPath === null ||
             this.config.basePath === null ||
             this.config.cfgPath === null
-        ){
+        ) {
             return logError('Cannot start the server with missing configuration (buildPath || basePath || cfgPath).', context);
         }
         //If the server is already alive
@@ -167,8 +167,7 @@ module.exports = class FXRunner {
             throw new Error("Failed to create fx server container. The resolved image name for the creation was invalid.");
         }
         // todo: container recreation if onesync setting changes.
-        // todo: find default port.
-        const serverPort = this.fxServerPort ? this.fxServerPort : 9999;
+        const serverPort = this.fxServerPort ? this.fxServerPort : 30131;
         const volumeMountsExpr = this.config.serverDataVolumeMount.split(":");
         if (volumeMountsExpr.length !== 4 && volumeMountsExpr.length !== 2) {
             throw new Error("Config error: invalid volume mount expression.")
@@ -180,6 +179,17 @@ module.exports = class FXRunner {
             volumeMountHostPath = [volumeMountsExpr[0], volumeMountsExpr[1]].join("");
             volumneMountContainerPath = [volumeMountsExpr[2], volumeMountsExpr[3]].join("");
         }
+        let onesyncFlag = (this.config.onesync) ? '+set onesync_enabled 1' : '';
+        let containerCmd;
+        // cmdArgs: ['/c', `${this.config.buildPath}/run.cmd ${onesyncFlag} +exec "${this.tmpExecFile}
+        if (globals.config.osType === 'Linux') {
+            containerCmd = ["/srv/fxserver/run.sh", onesyncFlag, "+exec", process.env.TMP_EXEC_FILE_PATH];
+        } else if (globals.config.osType === 'Windows_NT') {
+            containerCmd = ["C:\\fxserver\\run.cmd", onesyncFlag, "+exec", process.env.TMP_EXEC_FILE_PATH];
+        } else {
+            throw new Error("Unsupported OS.")
+        }
+
         const container = await this.dockerClient.createContainer({
             fromImage: imageName,
             AttachStdin: true,
@@ -187,6 +197,7 @@ module.exports = class FXRunner {
             AttachStderr: true,
             Tty: false,
             OpenStdin: true,
+            Cmd: containerCmd,
             HostConfig: {
                 PortBindings: {
                     [`${serverPort}/tcp`]: [

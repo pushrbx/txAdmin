@@ -92,7 +92,7 @@ module.exports = class ConfigVault {
             webConsole: null,
             discordBot: null,
             fxRunner: null,
-        }
+        };
 
         try {
             out.global = {

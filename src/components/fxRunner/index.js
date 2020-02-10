@@ -182,10 +182,15 @@ module.exports = class FXRunner {
         let onesyncFlag = (this.config.onesync) ? '+set onesync_enabled 1' : '';
         let containerCmd;
         // cmdArgs: ['/c', `${this.config.buildPath}/run.cmd ${onesyncFlag} +exec "${this.tmpExecFile}
+        let tmpExecFilePathInServerContainer;
+        let tmpExecFilePath = this.tmpExecFile;
         if (globals.config.osType === 'Linux') {
-            containerCmd = ["/srv/fxserver/run.sh", onesyncFlag, "+exec", process.env.TMP_EXEC_FILE_PATH];
+            tmpExecFilePathInServerContainer = `/srv/fxserver/extra/${process.env.TMP_EXEC_FILE_PATH}`;
+            containerCmd = ["/srv/fxserver/run.sh", onesyncFlag, "+exec", tmpExecFilePathInServerContainer];
         } else if (globals.config.osType === 'Windows_NT') {
-            containerCmd = ["C:\\fxserver\\run.cmd", onesyncFlag, "+exec", process.env.TMP_EXEC_FILE_PATH];
+            tmpExecFilePath = tmpExecFilePath.replace("/", "\\");
+            tmpExecFilePathInServerContainer = `C:\\extra\\${process.env.TMP_EXEC_FILE_PATH}`;
+            containerCmd = ["C:\\fxserver\\run.cmd", onesyncFlag, "+exec", tmpExecFilePathInServerContainer];
         } else {
             throw new Error("Unsupported OS.");
         }
@@ -215,7 +220,8 @@ module.exports = class FXRunner {
                     ]
                 },
                 Binds: [
-                    this.config.serverDataVolumeMount
+                    this.config.serverDataVolumeMount,
+                    `${tmpExecFilePath}:${tmpExecFilePathInServerContainer}`
                 ]
             }
         });
@@ -313,6 +319,8 @@ module.exports = class FXRunner {
                 }
             } else {
                 // container exists, hurray.
+                // todo: sanity check of the container. Possible use case: the txAdmin has been moved to a different folder, but the container
+                //       metadata still holds the old volume binding configuration. (we mount the exec cfg from txadmin's folder on the container)
                 const container = this.dockerClient.getContainer(serverContainer.Id);
                 await this.setupContainerSocketsAndStart(container);
             }

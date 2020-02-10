@@ -169,10 +169,55 @@ module.exports = class FXRunner {
         return null;
     }//Final spawnServer()
 
+    async createOrGetNetwork() {
+        if (globals.config.osType !== 'Windows_NT') {
+            const networks = await this.dockerClient.listNetworks();
+            return _.head(networks);
+        }
+        // mimicking command "docker network create -d nat --gateway=10.1.1.1 --subnet=10.1.1.0/24 defaultnet"
+        // first lets check if a network already exists with the same gateway or subnet
+        const networks = await this.dockerClient.listNetworks();
+        const existing = _.find(networks, x => {
+            const ipamConfig = _.head(x.IPAM.Config);
+            return x.Driver === "nat" && ipamConfig.Subnet === "10.1.1.0/24" && ipamConfig.Gateway === "10.1.1.1";
+        });
+        // if it exists return that
+        if (existing) {
+            return existing;
+        } else {
+            // otherwise create new.
+            const response = await this.dockerClient.createNetwork({
+                Name: "defaultnet",
+                CheckDuplicate: true,
+                Driver: "nat",
+                IPAM: {
+                    Config: [
+                        {
+                            Subnet: "10.1.1.0/24",
+                            Gateway: "10.1.1.1"
+                        }
+                    ]
+                },
+                Options: {
+                    "com.docker.network.windowsshim.networkname": "defaultnet"
+                }
+            });
+            if (response) {
+                const createdNetwork = this.dockerClient.getNetwork(response.Id);
+                return createdNetwork.inspect();
+            } else {
+                // fallback to default
+                // (assuming that on a simple windows server 2019 installation the default is a network with name nat)
+                return _.find(networks, x => x.Name === "nat");
+            }
+        }
+    }
+
     async createFxServerContainer(imageName) {
         if (!imageName) {
             throw new Error("Failed to create fx server container. The resolved image name for the creation was invalid.");
         }
+        const network = await this.createOrGetNetwork();
         // todo: container recreation if onesync setting changes.
         const serverPort = this.fxServerPort ? this.fxServerPort : 30130;
         const volumeMountsExpr = this.config.serverDataVolumeMount.split(":");
@@ -197,6 +242,7 @@ module.exports = class FXRunner {
 
         tmpExecFilePath = path.dirname(tmpExecFilePath);
 
+        // todo: add restart policy.
         const container = await this.dockerClient.createContainer({
             _query: {
                 name: this.config.containerName
@@ -229,6 +275,20 @@ module.exports = class FXRunner {
         });
 
         if (container) {
+            // this check also means that we are on a windows host, where a separate network adapter is recommended.
+            if (network.Name === "defaultnet") {
+                // connect the container to our custom network
+                network.connect({
+                    Container: container.Id
+                });
+                // then remove it from the default network if possible. (if fxserver is in a multiple network environment, server.cfg might require changes.)
+                const defaultNetwork = _.find(await this.dockerClient.listNetworks(), x => x.Name === "nat");
+                if (defaultNetwork) {
+                    defaultNetwork.disconnect({
+                        Container: container.Id
+                    });
+                }
+            }
             return container;
         } else {
             throw new Error("Couldnt create the server's container.");

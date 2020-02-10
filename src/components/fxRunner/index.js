@@ -270,8 +270,12 @@ module.exports = class FXRunner {
         if (!container) {
             throw new Error("Failed to create fx server container. The resolved container object for the creation was invalid.");
         }
-        await container.start();
-        const containerData = await container.inspect();
+        let containerData = await container.inspect();
+        if (!containerData.State.Running) {
+            await container.start();
+            containerData = await container.inspect();
+        }
+
         if (containerData.State.Running) {
             await this.setupSocketsForContainer(container);
         } else {

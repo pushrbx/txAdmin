@@ -210,12 +210,12 @@ module.exports = class FXRunner {
             Cmd: containerCmd,
             HostConfig: {
                 PortBindings: {
-                    [`${serverPort}/tcp`]: [
+                    [`30130/tcp`]: [
                         {
                             HostPort: `${serverPort}`
                         }
                     ],
-                    [`${serverPort}/udp`]: [
+                    [`30130/udp`]: [
                         {
                             HostPort: `${serverPort}`
                         }

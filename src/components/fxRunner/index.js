@@ -189,7 +189,7 @@ module.exports = class FXRunner {
             containerCmd = [onesyncFlag, "+exec", `${tmpExecFilePathInServerContainer}/${path.basename(process.env.TMP_EXEC_FILE_PATH)}`];
         } else if (globals.config.osType === 'Windows_NT') {
             tmpExecFilePath = tmpExecFilePath.replace("/", "\\");
-            tmpExecFilePathInServerContainer = `C:\\extra\\${path.basename(process.env.TMP_EXEC_FILE_PATH)}`;
+            tmpExecFilePathInServerContainer = "C:\\extra";
             containerCmd = [onesyncFlag, "+exec", `${tmpExecFilePathInServerContainer}\\${path.basename(process.env.TMP_EXEC_FILE_PATH)}`];
         } else {
             throw new Error("Unsupported OS.");

@@ -34,15 +34,6 @@ module.exports = class WebServer {
 
         this.app = express();
 
-        this.app.use(async (ctx, next) => {
-          if (ctx.request.url === '/_health' && ctx.request.method === 'HEAD') {
-            ctx.set('txadmin', 'You are so French!');
-            ctx.status = 204;
-          } else {
-            await next();
-          }
-        });
-
         // Setting up middlewares
         this.app.use(function(req, res, next){
             res.setTimeout(5000, function(){

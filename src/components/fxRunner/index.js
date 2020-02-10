@@ -85,7 +85,7 @@ module.exports = class FXRunner {
     }//Final setupVariables()
 
     isDockerContainerSpawnMode() {
-        return process.env.FXSERVER_IN_DOCKER && process.env.FXSERVER_IN_DOCKER === 1;
+        return process.env.FXSERVER_IN_DOCKER && process.env.FXSERVER_IN_DOCKER === "1";
     }
 
 
@@ -172,13 +172,6 @@ module.exports = class FXRunner {
         if (volumeMountsExpr.length !== 4 && volumeMountsExpr.length !== 2) {
             throw new Error("Config error: invalid volume mount expression.")
         }
-        let volumeMountHostPath, volumneMountContainerPath;
-        if (volumeMountsExpr.length === 2) {
-            [volumeMountHostPath, volumneMountContainerPath] = volumeMountsExpr;
-        } else if (volumeMountsExpr === 4) {
-            volumeMountHostPath = [volumeMountsExpr[0], volumeMountsExpr[1]].join("");
-            volumneMountContainerPath = [volumeMountsExpr[2], volumeMountsExpr[3]].join("");
-        }
         let onesyncFlag = (this.config.onesync) ? '+set onesync_enabled 1' : '';
         let containerCmd;
         // cmdArgs: ['/c', `${this.config.buildPath}/run.cmd ${onesyncFlag} +exec "${this.tmpExecFile}
@@ -187,11 +180,14 @@ module.exports = class FXRunner {
         } else if (globals.config.osType === 'Windows_NT') {
             containerCmd = ["C:\\fxserver\\run.cmd", onesyncFlag, "+exec", process.env.TMP_EXEC_FILE_PATH];
         } else {
-            throw new Error("Unsupported OS.")
+            throw new Error("Unsupported OS.");
         }
 
         const container = await this.dockerClient.createContainer({
-            fromImage: imageName,
+            _query: {
+                name: this.config.containerName
+            },
+            Image: imageName,
             AttachStdin: true,
             AttachStdout: true,
             AttachStderr: true,
@@ -211,18 +207,13 @@ module.exports = class FXRunner {
                         }
                     ]
                 },
-                Mounts: [
-                    {
-                        Type: "bind",
-                        Source: volumeMountHostPath,
-                        Target: volumneMountContainerPath,
-                        ReadOnly: false
-                    }
+                Binds: [
+                    this.config.serverDataVolumeMount
                 ]
             }
         });
 
-        if (result) {
+        if (container) {
             return container;
         } else {
             throw new Error("Couldnt create the server's container.");
@@ -282,7 +273,7 @@ module.exports = class FXRunner {
             // check if fxserver's container exists
             const containers = await this.dockerClient.listContainers({
                 "filters": {
-                    "status": [ "exited", "running" ]
+                    "status": [ "exited", "running", "created" ]
                 }
             });
             const serverContainer = _.find(containers, x => x.Image.indexOf(imageName) > -1 || x.Image === imageName);

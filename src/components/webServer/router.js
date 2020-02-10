@@ -29,6 +29,13 @@ module.exports = router = (config) =>{
         message: `Too many login attempts, enjoy your ${config.limiterMinutes} minutes of cooldown.`
     });
 
+    router.head('/_health', async (req, resp) => {
+        resp.sendStatus(204);
+    });
+
+    router.get('/_health', async (req, resp) => {
+        resp.sendStatus(400);
+    });
 
     //Authentication
     router.get('/auth', async (req, res) => {

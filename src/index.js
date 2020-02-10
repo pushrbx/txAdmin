@@ -75,24 +75,26 @@ const app = new txAdmin(serverProfile);
 
 //==============================================================
 //Freeze detector
-let hdTimer = Date.now();
-setInterval(() => {
-    let now = Date.now();
-    if(now - hdTimer > 2000){
-        let sep = `=`.repeat(72);
-        setTimeout(() => {
-            logError(sep);
-            logError('Major process freeze detected.');
-            if(process.env.os.toLowerCase().includes('windows')){
-                logError(`If using CMD or a 'start.bat' file, make sure to disable QuickEdit mode.`);
-                logError(`Join our Discord and type '!quickedit' for instructions.`);
-            }
-            logError('THIS IS NOT AN ERROR CAUSED BY TXADMIN! Your VPS might be lagging out.');
-            logError(sep);
-        }, 1000);
-    }
-    hdTimer = now;
-}, 500);
+if (!process.env.FXSERVER_IN_DOCKER || process.env.FXSERVER_IN_DOCKER !== "1") {
+    let hdTimer = Date.now();
+    setInterval(() => {
+        let now = Date.now();
+        if(now - hdTimer > 2000){
+            let sep = `=`.repeat(72);
+            setTimeout(() => {
+                logError(sep);
+                logError('Major process freeze detected.');
+                if(process.env.os.toLowerCase().includes('windows')){
+                    logError(`If using CMD or a 'start.bat' file, make sure to disable QuickEdit mode.`);
+                    logError(`Join our Discord and type '!quickedit' for instructions.`);
+                }
+                logError('THIS IS NOT AN ERROR CAUSED BY TXADMIN! Your VPS might be lagging out.');
+                logError(sep);
+            }, 1000);
+        }
+        hdTimer = now;
+    }, 500);
+}
 
 //Handle any stdio error
 process.stdin.on('error', (data) => {});
@@ -101,7 +103,7 @@ process.stderr.on('error', (data) => {});
 
 //Handle "the unexpected"
 process.on('unhandledRejection', (err) => {
-    logError(">>Ohh nooooo - unhandledRejection")
+    logError(">>Ohh nooooo - unhandledRejection");
     logError(err.message)
     logError(err.stack)
 });
@@ -112,4 +114,20 @@ process.on('uncaughtException', function(err) {
 });
 process.on('exit', (code) => {
     log(">>Stopping txAdmin");
+});
+
+if (process.platform === "win32") {
+    var rl = require("readline").createInterface({
+        input: process.stdin,
+        output: process.stdout
+    });
+
+    rl.on("SIGINT", function () {
+        process.emit("SIGINT");
+    });
+}
+
+process.on("SIGINT", function () {
+    //graceful shutdown
+    process.exit();
 });

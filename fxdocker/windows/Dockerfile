@@ -11,7 +11,7 @@ RUN Invoke-WebRequest -OutFile vc_redist.exe -UseBasicParsing "https://aka.ms/vs
 	rm server.zip;
 
 VOLUME "C:/fxserver/server-data"
-EXPOSE 30131
+EXPOSE 30130
 
 ENTRYPOINT ["powershell"]
 CMD ["C:/fxserver/run.cmd"]

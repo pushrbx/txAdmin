@@ -174,7 +174,7 @@ module.exports = class FXRunner {
             throw new Error("Failed to create fx server container. The resolved image name for the creation was invalid.");
         }
         // todo: container recreation if onesync setting changes.
-        const serverPort = this.fxServerPort ? this.fxServerPort : 30131;
+        const serverPort = this.fxServerPort ? this.fxServerPort : 30130;
         const volumeMountsExpr = this.config.serverDataVolumeMount.split(":");
         if (volumeMountsExpr.length !== 4 && volumeMountsExpr.length !== 2) {
             throw new Error("Config error: invalid volume mount expression.")

@@ -254,7 +254,7 @@ module.exports = class FXRunner {
             // todo: figure out when we write to stdIn socket does it close it?
             this.serverContainerStdIn.pipe(serverStream);
             container.modem.demuxStream(serverStream, this.serverContainerStdOut, this.serverContainerStdErr);
-            container.wait(() => {
+            container.wait(function () {
                 logWarn(`>> FXServer Closed. (CID: ${this.serverContainerId})`);
                 this.serverContainerStdIn.end();
                 this.serverContainerStdErr.end();
@@ -262,7 +262,7 @@ module.exports = class FXRunner {
                 if (serverStream) {
                     serverStream.socket.end();
                 }
-            });
+            }.bind(this));
         }
     }
 

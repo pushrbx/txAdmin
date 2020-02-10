@@ -185,11 +185,11 @@ module.exports = class FXRunner {
         let tmpExecFilePathInServerContainer;
         let tmpExecFilePath = this.tmpExecFile;
         if (globals.config.osType === 'Linux') {
-            tmpExecFilePathInServerContainer = `/srv/fxserver/extra/${process.env.TMP_EXEC_FILE_PATH}`;
+            tmpExecFilePathInServerContainer = `/srv/fxserver/extra/${path.basename(process.env.TMP_EXEC_FILE_PATH)}`;
             containerCmd = ["/srv/fxserver/run.sh", onesyncFlag, "+exec", tmpExecFilePathInServerContainer];
         } else if (globals.config.osType === 'Windows_NT') {
             tmpExecFilePath = tmpExecFilePath.replace("/", "\\");
-            tmpExecFilePathInServerContainer = `C:\\extra\\${process.env.TMP_EXEC_FILE_PATH}`;
+            tmpExecFilePathInServerContainer = `C:\\extra\\${path.basename(process.env.TMP_EXEC_FILE_PATH)}`;
             containerCmd = ["C:\\fxserver\\run.cmd", onesyncFlag, "+exec", tmpExecFilePathInServerContainer];
         } else {
             throw new Error("Unsupported OS.");

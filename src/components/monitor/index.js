@@ -33,13 +33,13 @@ module.exports = class Monitor {
             hitches: [],
             fullCrashes: 0,
             partialCrashes: 0,
-        }
+        };
         this.schedule = null;
         this.statusServer = {
             online: false,
             ping: false,
             players: []
-        }
+        };
         this.buildSchedule();
 
         //Cron functions
@@ -80,7 +80,7 @@ module.exports = class Monitor {
             let tOptions = {
                 smart_count: sub,
                 servername: globals.config.serverName
-            }
+            };
             return {
                 hour: date.getHours(),
                 minute: date.getMinutes(),
@@ -90,7 +90,7 @@ module.exports = class Monitor {
                     discord: globals.translator.t('restarter.schedule_warn_discord', tOptions),
                 }
             }
-        }
+        };
 
         let times = helpers.parseSchedule(this.config.restarter.schedule);
         let schedule = [];
@@ -99,7 +99,7 @@ module.exports = class Monitor {
             try {
                 announceMinutes.forEach((mins)=>{
                     schedule.push(getScheduleObj(time.hour, time.minute, mins));
-                })
+                });
                 schedule.push({
                     hour: time.hour,
                     minute: time.minute,
@@ -110,7 +110,7 @@ module.exports = class Monitor {
                 let timeJSON = JSON.stringify(time);
                 if(globals.config.verbose) logWarn(`Error building restart schedule for time '${timeJSON}':\n ${error.message}`, context);
             }
-        })
+        });
 
         if(globals.config.verbose) schedule.forEach(el => { dir(el.messages) });
         this.schedule = (schedule.length)? schedule : false;
@@ -121,9 +121,9 @@ module.exports = class Monitor {
     /**
      * Check the restart schedule
      */
-    checkRestartSchedule(){
+    async checkRestartSchedule(){
         if(!Array.isArray(this.schedule)) return;
-        if(globals.fxRunner.fxChild === null) return;
+        if(!await this.getFxServerState()) return;
 
         try {
             //Check schedule for current time
@@ -159,7 +159,7 @@ module.exports = class Monitor {
      */
     async restartFXServer(reason, reasonTranslated){
         //sanity check
-        if(globals.fxRunner.fxChild === null){
+        if(!await this.getFxServerState()) {
             logWarn('Server not started, no need to restart', context);
             return false;
         }
@@ -188,7 +188,7 @@ module.exports = class Monitor {
 
     //================================================================
     handleFailure(errorMessage){
-        let now = Math.round(Date.now()/1000)
+        let now = Math.round(Date.now()/1000);
         let elapsed = Math.round(Date.now()/1000) - globals.fxRunner.tsChildStarted;
 
         //Check cooldown
@@ -220,9 +220,9 @@ module.exports = class Monitor {
             }else if(this.failCounter === 60*4){ //after 4 minutes
                 let tOptions = {
                     servername: globals.config.serverName
-                }
+                };
                 globals.discordBot.sendAnnouncement(globals.translator.t('restarter.partial_crash_warn_discord', tOptions));
-                let chatMsg = globals.translator.t('restarter.partial_crash_warn')
+                let chatMsg = globals.translator.t('restarter.partial_crash_warn');
                 globals.fxRunner.srvCmd(`txaBroadcast "txAdmin" "${chatMsg}"`);
             }else if(this.failCounter === 60*5){ //after 5 minutes
                 this.globalCounters.partialCrashes++;
@@ -242,7 +242,7 @@ module.exports = class Monitor {
         let hitch = {
             ts: Math.round(Date.now()/1000),
             hitchTime: parseInt(hitchTime)
-        }
+        };
         this.globalCounters.hitches.push(hitch);
 
         //The minimum time for a hitch is 150ms. 60000/150=400
@@ -257,22 +257,49 @@ module.exports = class Monitor {
 
 
     //================================================================
+    async getFxServerState() {
+        let [dockerContainerState, childProcState] = [true, true];
+        if (globals.fxRunner.isDockerContainerSpawnMode()) {
+            if (globals.fxRunner.serverContainerId === null) {
+                dockerContainerState = false;
+            } else {
+                const container = globals.fxRunner.getFxServerContainer();
+                if (!container) {
+                    dockerContainerState = false;
+                }
+                const containerData = await container.inspect();
+                dockerContainerState = containerData.State.Running;
+            }
+        }
+
+        if (globals.fxRunner.fxChild === null || globals.fxRunner.fxServerPort === null) {
+            childProcState = false;
+        }
+
+        if (!globals.fxRunner.isDockerContainerSpawnMode() && childProcState) {
+            dockerContainerState = false;
+        }
+
+        return dockerContainerState || childProcState;
+    }
+
     /**
      * Refreshes the Server Status.
      */
-    async refreshServerStatus(){
+    async refreshServerStatus() {
+        const fxServerState = await this.getFxServerState();
+
         //Check if the server is supposed to be offline
-        if(globals.fxRunner.fxChild === null || globals.fxRunner.fxServerPort === null){
+        if (!fxServerState) {
             this.statusServer = {
                 online: false,
                 ping: false,
                 players: []
-            }
+            };
             return;
         }
 
-        //Setup do request e variáveis iniciais
-        let timeStart = Date.now()
+        let timeStart = Date.now();
         let players = [];
         let requestOptions = {
             url: `http://localhost:${globals.fxRunner.fxServerPort}/players.json`,
@@ -281,20 +308,27 @@ module.exports = class Monitor {
             responseEncoding: 'utf8',
             maxRedirects: 0,
             timeout: this.config.timeout
-        }
+        };
 
-        //Make request
-        try {
-            const res = await axios(requestOptions);
-            players = res.data;
-            if(!Array.isArray(players)) throw new Error("FXServer's players endpoint didnt return a JSON array.");
-        } catch (error) {
+        const failure = () => {
             this.handleFailure(error.message);
             this.statusServer = {
                 online: false,
                 ping: false,
                 players: []
+            };
+        };
+
+        // Make request
+        try {
+            const res = await axios(requestOptions);
+            players = res.data;
+            if(!Array.isArray(players)) {
+                failure();
+                return;
             }
+        } catch (error) {
+            failure();
             return;
         }
         this.failCounter = 0;
@@ -313,14 +347,14 @@ module.exports = class Monitor {
             delete player.endpoint;
         });
 
-        //Save status cache and print output
+        // Save status cache and print output
         this.statusServer = {
             online: true,
             ping: Date.now() - timeStart,
             players: players
-        }
-        this.timeSeries.add(players.length);
+        };
+        await this.timeSeries.add(players.length);
     }
 
 
-} //Fim Monitor()
+}; //Fim Monitor()

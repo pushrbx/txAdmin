@@ -88,6 +88,13 @@ module.exports = class FXRunner {
         return process.env.FXSERVER_IN_DOCKER && process.env.FXSERVER_IN_DOCKER === "1";
     }
 
+    getFxServerContainer() {
+        if (this.serverContainerId === null) {
+            return null;
+        }
+        return this.dockerClient.getContainer(this.serverContainerId);
+    }
+
 
     //================================================================
     /**

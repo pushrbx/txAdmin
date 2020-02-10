@@ -13,5 +13,4 @@ RUN Invoke-WebRequest -OutFile vc_redist.exe -UseBasicParsing "https://aka.ms/vs
 VOLUME "C:/fxserver/server-data"
 EXPOSE 30130
 
-ENTRYPOINT ["powershell"]
-CMD ["C:/fxserver/run.cmd"]
+ENTRYPOINT ["C:/fxserver/FXServer.exe", "+set", "citizen_dir", "C:/fxserver/citizen"]

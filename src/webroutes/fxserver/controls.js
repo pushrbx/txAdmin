@@ -35,7 +35,7 @@ module.exports = async function action(res, req) {
         }
 
     }else if(action == 'stop'){
-        if(globals.fxRunner.fxChild === null){
+        if(!await globals.monitor.getFxServerState()) {
             return res.send({type: 'danger', message: 'The server is already stopped.'});
         }
         webUtils.appendLog(req, `STOP SERVER`, context);
@@ -43,7 +43,7 @@ module.exports = async function action(res, req) {
         return res.send({type: 'warning', message: 'Server stopped.'});
 
     }else if(action == 'start'){
-        if(globals.fxRunner.fxChild !== null){
+        if(await globals.monitor.getFxServerState()){
             return res.send({type: 'danger', message: 'The server is already running. If it\'s not working, press RESTART.'});
         }
         webUtils.appendLog(req, `START SERVER`, context);

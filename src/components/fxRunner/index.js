@@ -185,15 +185,17 @@ module.exports = class FXRunner {
         let tmpExecFilePathInServerContainer;
         let tmpExecFilePath = this.tmpExecFile;
         if (globals.config.osType === 'Linux') {
-            tmpExecFilePathInServerContainer = `/srv/fxserver/extra/${path.basename(process.env.TMP_EXEC_FILE_PATH)}`;
-            containerCmd = ["/srv/fxserver/run.sh", onesyncFlag, "+exec", tmpExecFilePathInServerContainer];
+            tmpExecFilePathInServerContainer = `/srv/fxserver/extra`;
+            containerCmd = ["/srv/fxserver/run.sh", onesyncFlag, "+exec", `${tmpExecFilePathInServerContainer}/${path.basename(process.env.TMP_EXEC_FILE_PATH)}`];
         } else if (globals.config.osType === 'Windows_NT') {
             tmpExecFilePath = tmpExecFilePath.replace("/", "\\");
             tmpExecFilePathInServerContainer = `C:\\extra\\${path.basename(process.env.TMP_EXEC_FILE_PATH)}`;
-            containerCmd = ["C:\\fxserver\\run.cmd", onesyncFlag, "+exec", tmpExecFilePathInServerContainer];
+            containerCmd = ["C:\\fxserver\\run.cmd", onesyncFlag, "+exec", `${tmpExecFilePathInServerContainer}\\${path.basename(process.env.TMP_EXEC_FILE_PATH)}`];
         } else {
             throw new Error("Unsupported OS.");
         }
+
+        tmpExecFilePath = path.dirname(tmpExecFilePath);
 
         const container = await this.dockerClient.createContainer({
             _query: {
@@ -252,7 +254,7 @@ module.exports = class FXRunner {
             // todo: figure out when we write to stdIn socket does it close it?
             this.serverContainerStdIn.pipe(serverStream);
             container.modem.demuxStream(serverStream, this.serverContainerStdOut, this.serverContainerStdErr);
-            container.wait(function () {
+            container.wait(() => {
                 logWarn(`>> FXServer Closed. (CID: ${this.serverContainerId})`);
                 this.serverContainerStdIn.end();
                 this.serverContainerStdErr.end();
@@ -397,9 +399,9 @@ module.exports = class FXRunner {
      */
     async injectResources(){
         try {
-            let reset = await resourceInjector.resetCacheFolder(this.config.basePath);
+            await resourceInjector.resetCacheFolder(this.config.basePath);
             this.extResources = resourceInjector.getResourcesList(this.config.basePath);
-            let inject = await resourceInjector.inject(this.config.basePath, this.extResources);
+            await resourceInjector.inject(this.config.basePath, this.extResources);
         } catch (error) {
             logError(`ResourceInjector Error: ${error.message}`, context);
             return false;
@@ -444,7 +446,30 @@ module.exports = class FXRunner {
         });
 
         if(refresh) toExec.push('refresh');
-        if(start) toExec.push(`exec "${this.config.cfgPath}"`);
+        if(start) {
+            if (this.isDockerContainerSpawnMode()) {
+                if (this.config.serverDataVolumeMount) {
+                    const parts = this.config.serverDataVolumeMount.split(":");
+                    let inContainerPath;
+                    if (parts.length === 4) {
+                        inContainerPath = [parts[2], ":", parts[3]].join("");
+                    } else if (parts.length === 2) {
+                        inContainerPath = parts[1];
+                    } else {
+                        if (globals.config.osType === "Windows_NT") {
+                            inContainerPath = "C:\\fxserver\\server-data";
+                        } else if (globals.config.osType === "Linux") {
+                            inContainerPath = "/srv/fxserver/server-data";
+                        }
+                    }
+                    toExec.push(`exec "${inContainerPath}${path.sep}${path.basename(this.config.cfgPath)}"`);
+                } else {
+                    toExec.push(`exec "C:\\fxserver\\server-data\\${path.basename(this.config.cfgPath)}"`);
+                }
+            } else {
+                toExec.push(`exec "${this.config.cfgPath}"`);
+            }
+        }
 
         try {
             await fs.writeFile(this.tmpExecFile, toExec.join('\n'), 'utf8');

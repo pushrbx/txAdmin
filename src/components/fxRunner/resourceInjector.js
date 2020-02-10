@@ -56,11 +56,11 @@ async function inject(basePath, resList) {
         let promFunc = async (src, dst) => {
             await fs.ensureDir(dst);
             await fs.copy(src, dst)
-        }
+        };
 
         let rootDir = './extensions/';
         let cachePath = `${basePath}/resources/[txAdmin-cache]`;
-        let promises = []
+        let promises = [];
         resList.forEach((res) => {
             promises.push(promFunc(rootDir+res+'/resource', cachePath+'/'+res));
         });
@@ -76,4 +76,4 @@ module.exports = {
     resetCacheFolder,
     getResourcesList,
     inject,
-}
+};

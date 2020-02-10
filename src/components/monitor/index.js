@@ -310,7 +310,7 @@ module.exports = class Monitor {
             timeout: this.config.timeout
         };
 
-        const failure = () => {
+        const failure = (error) => {
             this.handleFailure(error.message);
             this.statusServer = {
                 online: false,
@@ -324,11 +324,11 @@ module.exports = class Monitor {
             const res = await axios(requestOptions);
             players = res.data;
             if(!Array.isArray(players)) {
-                failure();
+                failure({ message: "FXServer's players endpoint didnt return a JSON array."});
                 return;
             }
         } catch (error) {
-            failure();
+            failure({ message: error });
             return;
         }
         this.failCounter = 0;
